@@ -30,74 +30,110 @@ function getDay(schedule, day) {
 	return text;
 }
 
-bot.onText(/^\/help/, function (msg) {
-	bot.sendMessage(msg.chat.id,
-		'<code>/save [номер группы]</code> - сохраняет вашу группу.\n' +
-		'Дальнейшее взаимодействие посредством inline!', {parse_mode: 'HTML'})
+bot.onText(/^\/start/, function (msg) {
+	const param = msg.text.split(' ')[1];
+
+	if (param === 'inline')
+		bot.sendMessage(msg.chat.id, 'Сохрани профиль, используя команду ' +
+			'<code>/save [номер группы]</code>', {parse_mode: 'HTML'});
+	else
+		bot.sendMessage(msg.chat.id, 'Простой бот, который отображает расписание группы КФУ ' +
+			'посредством inline-режима (аналогично боту @gif и другим).\n' +
+			'Краткая справка: /help');
 });
 
-bot.onText(/^\/save (.+)/, function (msg, match) {
-	const group = match[1];
+bot.onText(/^\/help/, function (msg) {
+	bot.sendMessage(msg.chat.id,
+		'/save - сохраняет вашу группу.\n' +
+		'/delete - полностью удаляет ваш профиль из бота.\n' +
+		'Дальнейшее взаимодействие посредством inline!');
+});
 
-	r.table('users').insert({
-		id: msg.from.id,
-		group: match[1]
-	}, {conflict: 'update'})
+bot.onText(/^\/save/, function (msg, match) {
+	bot.sendMessage(msg.chat.id, 'Введите группу:', {reply_markup: {force_reply: true}})
 		.then(function (res) {
-			const options = {
-				url: `http://kpfu.ru/week_sheadule_print?p_group_name=${group}`,
-				encoding: null
-			};
-
-			return request.get(options);
-		})
-
-		.then(function (res) {
-
-			const body = iconv.decode(Buffer.from(res), 'win1251');
-			const $ = cheerio.load(body);
-
-			if (body.indexOf('Расписание не найдено') > -1)
-				throw new Error('Group not found!');
-			else {
-				const temp = [];
-
-				$('tr').each(function (i) {
-					temp[i] = [];
-					$('td', this).each(function (j) {
-						$('br', this).remove();
-						$('font', this).prepend('\n');
-						$('font', this).append('\n');
-
-						temp[i][j] = $(this).text().trim();
-					})
+			return new Promise(function (resolve) {
+				bot.onReplyToMessage(msg.chat.id, res.message_id, function (group) {
+					resolve(group.text);
 				});
-
-				const schedule = [];
-
-				for (let i in temp[0]) {
-					schedule[i] = [];
-					for (let j in temp) {
-						schedule[i][j] = temp[j][i];
-					}
-				}
-
-				return r.table('groups').insert({
-					id: group,
-					schedule: schedule
-				}, {conflict: 'update'});
-			}
+			});
 		})
+
+		.then(function (group) {
+			r.table('users').insert({
+				id: msg.from.id,
+				group: match[1]
+			}, {conflict: 'update'})
+				.then(function (res) {
+					const options = {
+						url: `http://kpfu.ru/week_sheadule_print?p_group_name=${group}`,
+						encoding: null
+					};
+
+					return request.get(options);
+				})
+
+				.then(function (res) {
+					const body = iconv.decode(Buffer.from(res), 'win1251');
+					const $ = cheerio.load(body);
+
+					if (body.indexOf('Расписание не найдено') > -1)
+						throw new Error('Group not found!');
+					else {
+						const temp = [];
+
+						$('tr').each(function (i) {
+							temp[i] = [];
+							$('td', this).each(function (j) {
+								$('br', this).remove();
+								$('font', this).prepend('\n');
+								$('font', this).append('\n');
+
+								temp[i][j] = $(this).text().trim();
+							})
+						});
+
+						const schedule = [];
+
+						for (let i in temp[0]) {
+							schedule[i] = [];
+							for (let j in temp) {
+								schedule[i][j] = temp[j][i];
+							}
+						}
+
+						return r.table('groups').insert({
+							id: group,
+							schedule: schedule
+						}, {conflict: 'update'});
+					}
+				})
+
+				.then(function (res) {
+					console.log(res);
+					bot.sendMessage(msg.chat.id, 'Сохранено!');
+				})
+
+				.catch(function (error) {
+					console.warn(error.message);
+					bot.sendMessage(msg.chat.id, `Что-то пошло не так!\n<code>${error.message}</code>`, {parse_mode: 'HTML'});
+				});
+		})
+});
+
+bot.onText(/^\/delete/, function (msg) {
+	r.table('users')
+		.get(msg.from.id).delete()
 
 		.then(function (res) {
 			console.log(res);
-			bot.sendMessage(msg.chat.id, 'Сохранено!')
+			bot.sendMessage(msg.chat.id, 'Удалено!');
 		})
 
 		.catch(function (error) {
 			console.warn(error.message);
 			bot.sendMessage(msg.chat.id, `Что-то пошло не так!\n<code>${error.message}</code>`, {parse_mode: 'HTML'});
-		})
+		});
 });
 
 bot.on('inline_query', function (query) {
@@ -127,6 +163,11 @@ bot.on('inline_query', function (query) {
 
 		.catch(function (error) {
 			console.warn(error.message);
+			bot.answerInlineQuery(query.id, [], {
+				switch_pm_text: 'Ты не сохранил номер группы!',
+				switch_pm_parameter: 'inline',
+				is_personal: true
+			})
 		});
 });
 
