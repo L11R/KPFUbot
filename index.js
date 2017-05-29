@@ -94,8 +94,7 @@ bot.onText(/^\/start/, function (msg) {
 	const param = msg.text.split(' ')[1];
 
 	if (param === 'inline')
-		bot.sendMessage(msg.chat.id, 'Сохрани профиль, используя команду ' +
-			'<code>/save [номер группы]</code>', {parse_mode: 'HTML'});
+		bot.sendMessage(msg.chat.id, 'Сохрани профиль, используя команду /save');
 	else
 		bot.sendMessage(msg.chat.id, 'Простой бот, который отображает расписание группы КФУ ' +
 			'посредством inline-режима (аналогично боту @gif и другим).\n' +
@@ -104,7 +103,8 @@ bot.onText(/^\/start/, function (msg) {
 
 bot.onText(/^\/help/, function (msg) {
 	bot.sendMessage(msg.chat.id,
-		'/save - сохраняет вашу группу.\n' +
+		'/save - сохраняет вашу группу и её расписание.\n' +
+		'/update - обновляет расписание вашей группы.\n' +
 		'/delete - полностью удаляет ваш профиль из бота.\n' +
 		'/status - отображает текущий статус.\n' +
 		'Дальнейшее взаимодействие посредством inline!');
