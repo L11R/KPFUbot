@@ -97,17 +97,22 @@ bot.onText(/^\/start/, function (msg) {
 		bot.sendMessage(msg.chat.id, 'Сохрани профиль, используя команду /save');
 	else
 		bot.sendMessage(msg.chat.id, 'Простой бот, который отображает расписание группы КФУ ' +
-			'посредством inline-режима (аналогично боту @gif и другим).\n' +
+			'посредством inline-режима (аналогично боту @gif и другим). Также можно использовать ' +
+			'классический режим.\n' +
 			'Краткая справка: /help');
 });
 
 bot.onText(/^\/help/, function (msg) {
 	bot.sendMessage(msg.chat.id,
+		'/today - расписание на сегодня.\n' +
+		'/tomorrow - расписание на завтра.\n' +
+		'<code>/get 0-6</code> - расписание на нужный день.\n' +
+		'Например <code>/get 3</code> - на среду.\n\n' +
+		'Все эти данные можно также получить посредством inline-режима!\n\n' +
 		'/save - сохраняет вашу группу и её расписание.\n' +
 		'/update - обновляет расписание вашей группы.\n' +
 		'/delete - полностью удаляет ваш профиль из бота.\n' +
-		'/status - отображает текущий статус.\n' +
-		'Дальнейшее взаимодействие посредством inline!');
+		'/status - отображает текущий статус.', {parse_mode: 'HTML'});
 });
 
 bot.onText(/^\/save/, function (msg) {
@@ -126,6 +131,7 @@ bot.onText(/^\/save/, function (msg) {
 				group: group
 			}, {conflict: 'update'})
 				.then(function (res) {
+					console.log(res);
 					return fetchSchedule(group);
 				})
 
@@ -190,6 +196,42 @@ bot.onText(/^\/status/, function (msg) {
 			console.warn(error.message);
 			bot.sendMessage(msg.chat.id, `Что-то пошло не так!\n<code>${error.message}</code>`, {parse_mode: 'HTML'});
 		});
+});
+
+bot.onText(/^\/get (\d+)|^\/get|^\/today|^\/tomorrow/, function (msg, match) {
+	if (match[0] === '/get')
+		bot.sendMessage(msg.chat.id, 'Введи число в пределе от 0 до 6, чтобы получить расписание на нужный день.');
+	else {
+		const now = new Date();
+
+		let day;
+		if (match[0] === '/today')
+			day = now.getDay();
+		else if (match[0] === '/tomorrow')
+			day = now.getDay() + 1;
+		else
+			day = parseInt(match[1]);
+
+		// Получаем нужную группу, исходя из ID
+		r.table('groups')
+			.get(
+				r.table('users').get(msg.from.id)('group')
+			)('schedule')
+
+			.then(function (schedule) {
+				if (day === 0)
+					bot.sendMessage(msg.chat.id, 'Это выходной!');
+				else if (day > 0 && day < 7)
+					bot.sendMessage(msg.chat.id, getDay(schedule, day), {parse_mode: 'HTML'});
+				else
+					bot.sendMessage(msg.chat.id, 'Число должно быть в пределе от 0 до 6.');
+			})
+
+			.catch(function (error) {
+				console.warn(error.message);
+				bot.sendMessage(msg.chat.id, `Что-то пошло не так!\n<code>${error.message}</code>`, {parse_mode: 'HTML'});
+			});
+	}
 });
 
 bot.on('inline_query', function (query) {
