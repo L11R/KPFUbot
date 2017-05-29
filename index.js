@@ -30,6 +30,66 @@ function getDay(schedule, day) {
 	return text;
 }
 
+function fetchSchedule(group) {
+	const options = {
+		url: `http://kpfu.ru/week_sheadule_print?p_group_name=${group}`,
+		encoding: null
+	};
+
+	return new Promise(function (resolve, reject) {
+		request.get(options)
+			.then(function (res) {
+				// Cheerio скармливаем HTML сразу с UTF-8
+				const body = iconv.decode(Buffer.from(res), 'win1251');
+				const $ = cheerio.load(body);
+
+				if (body.indexOf('Расписание не найдено') > -1)
+					throw new Error('Group not found!');
+				else {
+					// temp это сырой двумерный массив с расписанием
+					const temp = [];
+
+					$('tr').each(function (i) {
+						temp[i] = [];
+						$('td', this).each(function (j) {
+							$('br', this).remove();
+							$('font', this).prepend('\n');
+							$('font', this).append('\n');
+
+							temp[i][j] = $(this).text().trim();
+						})
+					});
+
+					// А вот schedule это уже транспонированный temp,
+					// с которым гораздо удобней работать
+					const schedule = [];
+
+					for (let i in temp[0]) {
+						schedule[i] = [];
+						for (let j in temp) {
+							schedule[i][j] = temp[j][i];
+						}
+					}
+
+					// Сохраняем этот массив
+					return r.table('groups').insert({
+						id: group,
+						schedule: schedule,
+						date: r.now()
+					}, {conflict: 'update'});
+				}
+			})
+
+			.then(function (res) {
+				resolve(res);
+			})
+
+			.catch(function (error) {
+				reject(error);
+			});
+	});
+}
+
 bot.onText(/^\/start/, function (msg) {
 	const param = msg.text.split(' ')[1];
 
@@ -46,6 +106,7 @@ bot.onText(/^\/help/, function (msg) {
 	bot.sendMessage(msg.chat.id,
 		'/save - сохраняет вашу группу.\n' +
 		'/delete - полностью удаляет ваш профиль из бота.\n' +
+		'/status - отображает текущий статус.\n' +
 		'Дальнейшее взаимодействие посредством inline!');
 });
 
@@ -65,55 +126,7 @@ bot.onText(/^\/save/, function (msg) {
 				group: group
 			}, {conflict: 'update'})
 				.then(function (res) {
-					console.log(res);
-
-					const options = {
-						url: `http://kpfu.ru/week_sheadule_print?p_group_name=${group}`,
-						encoding: null
-					};
-
-					return request.get(options);
-				})
-
-				.then(function (res) {
-					// Cheerio скармливаем HTML сразу с UTF-8
-					const body = iconv.decode(Buffer.from(res), 'win1251');
-					const $ = cheerio.load(body);
-
-					if (body.indexOf('Расписание не найдено') > -1)
-						throw new Error('Group not found!');
-					else {
-						// temp это сырой двумерный массив с расписанием
-						const temp = [];
-
-						$('tr').each(function (i) {
-							temp[i] = [];
-							$('td', this).each(function (j) {
-								$('br', this).remove();
-								$('font', this).prepend('\n');
-								$('font', this).append('\n');
-
-								temp[i][j] = $(this).text().trim();
-							})
-						});
-
-						// А вот schedule это уже транспонированный temp,
-						// с которым гораздо удобней работать
-						const schedule = [];
-
-						for (let i in temp[0]) {
-							schedule[i] = [];
-							for (let j in temp) {
-								schedule[i][j] = temp[j][i];
-							}
-						}
-
-						// Сохраняем этот массив
-						return r.table('groups').insert({
-							id: group,
-							schedule: schedule
-						}, {conflict: 'update'});
-					}
+					return fetchSchedule(group);
 				})
 
 				.then(function (res) {
@@ -128,6 +141,25 @@ bot.onText(/^\/save/, function (msg) {
 		});
 });
 
+bot.onText(/^\/update/, function (msg) {
+	r.table('users')
+		.get(msg.from.id)
+
+		.then(function (res) {
+			return fetchSchedule(res.group);
+		})
+
+		.then(function (res) {
+			console.log(res);
+			bot.sendMessage(msg.chat.id, 'Обновлено!');
+		})
+
+		.catch(function (error) {
+			console.warn(error.message);
+			bot.sendMessage(msg.chat.id, `Что-то пошло не так!\n<code>${error.message}</code>`, {parse_mode: 'HTML'});
+		});
+});
+
 bot.onText(/^\/delete/, function (msg) {
 	r.table('users')
 		.get(msg.from.id).delete()
@@ -135,6 +167,23 @@ bot.onText(/^\/delete/, function (msg) {
 		.then(function (res) {
 			console.log(res);
 			bot.sendMessage(msg.chat.id, 'Удалено!');
+		})
+
+		.catch(function (error) {
+			console.warn(error.message);
+			bot.sendMessage(msg.chat.id, `Что-то пошло не так!\n<code>${error.message}</code>`, {parse_mode: 'HTML'});
+		});
+});
+
+bot.onText(/^\/status/, function (msg) {
+	r.table('groups')
+		.get(
+			r.table('users').get(msg.from.id)('group')
+		)
+
+		.then(function (res) {
+			const text = `<b>ID:</b> ${msg.from.id}\n<b>Группа:</b> ${res.id}\n<b>Последнее обновление:</b> ${res.date}`;
+			bot.sendMessage(msg.chat.id, text, {parse_mode: 'HTML'});
 		})
 
 		.catch(function (error) {
